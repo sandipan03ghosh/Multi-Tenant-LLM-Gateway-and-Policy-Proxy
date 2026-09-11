@@ -1,0 +1,19 @@
+# Never copy secrets or local env into any image — containers get their config from the
+# orchestrator's environment (docker-compose.yml's env_file/environment), never a baked-in file.
+.env
+.env.*
+!.env.example
+
+node_modules
+**/node_modules
+**/dist
+**/generated
+
+.git
+.gitignore
+
+**/*.md
+!README.md
+
+.vscode
+.idea

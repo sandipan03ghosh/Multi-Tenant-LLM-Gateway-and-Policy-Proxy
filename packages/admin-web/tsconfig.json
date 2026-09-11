@@ -1,0 +1,27 @@
+// Deliberately does NOT extend ../../tsconfig.base.json — that config targets this monorepo's
+// Node backend packages (module/moduleResolution: NodeNext, requiring explicit .js import
+// extensions, lib: ES2022 only, composite project-reference builds). This is a browser SPA built
+// by Vite: it needs the DOM lib, JSX, bundler-style extensionless resolution, and no
+// declaration/composite output (there's no downstream package that imports from this one — it's
+// a deployable app, not a library). Kept as its own standalone config for that reason, not an
+// oversight.
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "useDefineForClassFields": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "noEmit": true
+  },
+  "include": ["src"]
+}

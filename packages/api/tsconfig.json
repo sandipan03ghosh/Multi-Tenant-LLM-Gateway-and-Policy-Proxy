@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "src"
+  },
+  "references": [
+    { "path": "../domain" },
+    { "path": "../application" },
+    { "path": "../adapters-postgres" },
+    { "path": "../adapters-redis" },
+    { "path": "../adapters-provider-gemini" },
+    { "path": "../adapters-provider-groq" },
+    { "path": "../adapters-observability" }
+  ],
+  "include": ["src"]
+}

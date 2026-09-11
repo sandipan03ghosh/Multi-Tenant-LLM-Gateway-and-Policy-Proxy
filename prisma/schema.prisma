@@ -1,0 +1,345 @@
+// Prisma schema — tenancy, the ConfigurationService backing store, the JobScheduler backing
+// store, batch requests, audit log, cost ledger, and alert channels.
+//
+// The generated client is emitted inside the adapters-postgres package (not node_modules),
+// keeping the concrete Prisma client behind the adapter boundary — domain/application never
+// import it directly.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../packages/adapters-postgres/src/generated/prisma"
+  moduleFormat = "esm"
+}
+
+// Connection URL is configured in prisma.config.ts (Prisma 7's datasource-url location).
+datasource db {
+  provider = "postgresql"
+}
+
+enum RoleScope {
+  ORGANIZATION
+  PROJECT
+}
+
+enum ConfigScope {
+  GLOBAL
+  ORGANIZATION
+  PROJECT
+}
+
+model Organization {
+  id        String   @id @default(cuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  projects      Project[]
+  users         User[]
+  roles         Role[]
+  batchRequests BatchRequest[]
+
+  @@map("organizations")
+}
+
+model Project {
+  id             String   @id @default(cuid())
+  organizationId String
+  name           String
+  slug           String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization          Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  apiKeys                ApiKey[]
+  userRoleAssignments    UserRoleAssignment[]
+  apiKeyRoleAssignments  ApiKeyRoleAssignment[]
+  batchRequests          BatchRequest[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId])
+  @@map("projects")
+}
+
+model User {
+  id             String    @id @default(cuid())
+  organizationId String
+  email          String
+  passwordHash   String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  roleAssignments UserRoleAssignment[]
+
+  @@unique([organizationId, email])
+  @@index([organizationId])
+  @@map("users")
+}
+
+// Machine identity. keyPrefix enables O(1) lookup without a table scan; keyHash (argon2id,
+// applied at the application layer) is the only persisted form of the secret.
+model ApiKey {
+  id        String    @id @default(cuid())
+  projectId String
+  name      String
+  keyPrefix String    @unique
+  keyHash   String
+  createdAt DateTime  @default(now())
+  revokedAt DateTime?
+
+  project         Project                @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  roleAssignments ApiKeyRoleAssignment[]
+
+  @@index([projectId])
+  @@map("api_keys")
+}
+
+// Static permission catalog (e.g. "routing:policy:write", "budget:policy:read"). Seeded, not
+// user-managed.
+model Permission {
+  id          String @id @default(cuid())
+  code        String @unique
+  description String
+
+  rolePermissions RolePermission[]
+
+  @@map("permissions")
+}
+
+// A Role is normally defined under an Organization. Its `scope` determines whether an assignment
+// applies organization-wide (ORGANIZATION) or must be pinned to one Project (PROJECT) — enforced
+// at the application layer, since Prisma can't express "projectId required iff scope = PROJECT".
+//
+// organizationId is nullable to also support a global/platform role, for gateway-wide operator
+// permissions with no per-tenant meaning. A global role still uses scope = ORGANIZATION ("not
+// project-pinned"). Permission resolution never reads role.organizationId, only the roleId.
+//
+// Accepted gap: @@unique([organizationId, name]) doesn't prevent two global roles (both NULL)
+// sharing a name, since Postgres treats NULL as distinct. Global roles are operator-seeded only.
+//
+// A future Admin API endpoint for role assignment MUST guard against a caller assigning a role
+// whose permissions exceed their own.
+model Role {
+  id             String    @id @default(cuid())
+  organizationId String?
+  name           String
+  scope          RoleScope
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization      Organization?          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissions       RolePermission[]
+  userAssignments   UserRoleAssignment[]
+  apiKeyAssignments ApiKeyRoleAssignment[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+  @@map("roles")
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model UserRoleAssignment {
+  id        String   @id @default(cuid())
+  userId    String
+  roleId    String
+  // Null when the bound Role has scope = ORGANIZATION; required when scope = PROJECT.
+  projectId String?
+  createdAt DateTime @default(now())
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role    Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleId, projectId])
+  @@index([userId])
+  @@index([projectId])
+  @@map("user_role_assignments")
+}
+
+model ApiKeyRoleAssignment {
+  id        String   @id @default(cuid())
+  apiKeyId  String
+  roleId    String
+  projectId String?
+  createdAt DateTime @default(now())
+
+  apiKey  ApiKey   @relation(fields: [apiKeyId], references: [id], onDelete: Cascade)
+  role    Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([apiKeyId, roleId, projectId])
+  @@index([apiKeyId])
+  @@index([projectId])
+  @@map("api_key_role_assignments")
+}
+
+// Backing store for ConfigurationService. scopeId is a plain string (an Organization id, a
+// Project id, or the literal "global"), not nullable FKs — Postgres treats NULL as distinct in a
+// unique constraint, which would fail to prevent duplicate GLOBAL entries.
+model ConfigurationEntry {
+  id        String      @id @default(cuid())
+  scope     ConfigScope
+  scopeId   String
+  key       String
+  value     Json
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
+
+  @@unique([scope, scopeId, key])
+  @@map("configuration_entries")
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+// Backing store for JobScheduler. Workers claim rows via a single atomic
+// "UPDATE ... FROM (SELECT ... FOR UPDATE SKIP LOCKED) ... RETURNING" that picks up due PENDING
+// rows and RUNNING rows whose lease (lockedUntil) expired. attempts is incremented in the claim,
+// not on failure, so a job that crashes the whole worker still consumes an attempt.
+//
+// lockToken guards against a stale worker clobbering a newer claim: markSucceeded/markFailed
+// filter on (id, lockToken), so a superseded worker's write matches zero rows.
+model Job {
+  id          String    @id @default(cuid())
+  type        String
+  payload     Json
+  status      JobStatus @default(PENDING)
+  attempts    Int       @default(0)
+  maxAttempts Int       @default(5)
+  runAt       DateTime  @default(now())
+  lockedAt    DateTime?
+  lockedUntil DateTime?
+  lockToken   String?
+  lastError   String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  // One composite index per claim-query branch: (status, runAt) for the PENDING branch,
+  // (status, lockedUntil) for the expired-lease branch.
+  @@index([status, runAt])
+  @@index([status, lockedUntil])
+  @@map("jobs")
+}
+
+enum BatchRequestClass {
+  BATCH
+  BACKGROUND
+}
+
+enum BatchRequestStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+}
+
+// Client-facing tracking record for the Batch API. `id` is the same id as the enqueue()
+// QueueTicket, so POST /v1/batches and GET /v1/batches/{id} share one identifier. No FK to Job:
+// this row's lifecycle is independent of the Job row(s) that execute it.
+model BatchRequest {
+  id               String             @id
+  organizationId   String
+  projectId        String?
+  requestClass     BatchRequestClass
+  canonicalRequest Json
+  routingPolicy    Json
+  webhookUrl       String?
+  status           BatchRequestStatus @default(PENDING)
+  result           Json?
+  errorCode        String?
+  errorMessage     String?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+  completedAt      DateTime?
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  project      Project?     @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, projectId])
+  @@map("batch_requests")
+}
+
+enum AuditActorType {
+  USER
+  API_KEY
+}
+
+// Append-only audit trail. No FK relations to Organization/Project — an audit entry must stay
+// readable after the tenant it describes is deleted, so organizationId/projectId/actorId are
+// plain strings.
+//
+// "Append-only" is enforced at two levels: AuditLogRepository exposes only create()/list(), and
+// the deployed application role's Postgres grant on this table should be INSERT/SELECT only
+// (applied via a manual migration statement, not expressible here).
+model AuditLogEntry {
+  id             String         @id @default(cuid())
+  organizationId String
+  projectId      String?
+  actorType      AuditActorType
+  actorId        String
+  action         String
+  targetType     String?
+  targetId       String?
+  metadata       Json?
+  createdAt      DateTime       @default(now())
+
+  @@index([organizationId, createdAt])
+  @@map("audit_log_entries")
+}
+
+// Durable cost ledger — the source Budget Enforcement's reconciliation job and cost-reporting
+// APIs read from. No FK relations to Organization/Project (same rationale as AuditLogEntry).
+//
+// *CostMicros are BigInt (Postgres bigint) — a 32-bit Int overflows within realistic volume.
+// Prisma maps BigInt to a JS `bigint`; PrismaCostLedgerRepository converts both directions
+// (`BigInt(n)` on write, `Number(...)` on read). Per-entry values stay well under
+// Number.MAX_SAFE_INTEGER.
+model CostLedgerEntry {
+  id               String   @id @default(cuid())
+  organizationId   String
+  projectId        String?
+  providerId       String
+  modelId          String
+  promptTokens     Int
+  completionTokens Int
+  inputCostMicros  BigInt
+  outputCostMicros BigInt
+  totalCostMicros  BigInt
+  currency         String
+  createdAt        DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@map("cost_ledger_entries")
+}
+
+// Operator-managed webhook channels for alert delivery — any number, independently
+// enabled/disabled. Global only, no organizationId; Admin CRUD gated by the global-only
+// alert-channel:read/write permissions.
+//
+// `url` is stored in full for delivery. The Admin API's GET returns only a redacted
+// (protocol+host) view; the full value is never re-exposed after creation.
+model AlertChannel {
+  id        String   @id @default(cuid())
+  name      String
+  url       String
+  enabled   Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("alert_channels")
+}

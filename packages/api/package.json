@@ -1,0 +1,35 @@
+{
+  "name": "@llm-gateway/api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "HTTP API composition root — Express app, DTO validation, OpenAPI spec. Wires adapters to application use-cases via dependency injection.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "jest",
+    "dev": "tsx --env-file=../../.env src/index.ts",
+    "generate:openapi": "tsx scripts/generate-openapi.ts"
+  },
+  "dependencies": {
+    "@llm-gateway/adapters-observability": "workspace:*",
+    "@llm-gateway/adapters-postgres": "workspace:*",
+    "@llm-gateway/adapters-provider-gemini": "workspace:*",
+    "@llm-gateway/adapters-provider-groq": "workspace:*",
+    "@llm-gateway/adapters-redis": "workspace:*",
+    "@llm-gateway/adapters-security": "workspace:*",
+    "@llm-gateway/application": "workspace:*",
+    "@llm-gateway/domain": "workspace:*",
+    "express": "^5.2.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/express-serve-static-core": "^5.1.3",
+    "@types/node": "^24.0.0",
+    "tsx": "^4.23.11",
+    "typescript": "^5.9.3"
+  }
+}

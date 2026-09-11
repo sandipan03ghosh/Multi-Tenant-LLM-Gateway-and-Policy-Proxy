@@ -1,0 +1,18 @@
+# Alertmanager config for local development.
+#
+# The webhook URL is read from a file at container start (url_file), backed by
+# ALERTMANAGER_WEBHOOK_URL via docker-compose.yml's secrets. Point it at whatever should receive
+# Prometheus's metric-threshold alerts. Separate from the Gateway's own AlertPublisher/AlertChannel.
+
+route:
+  receiver: "gateway-webhook"
+  group_by: ["alertname"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+
+receivers:
+  - name: "gateway-webhook"
+    webhook_configs:
+      - url_file: /run/secrets/alertmanager_webhook_url
+        send_resolved: true

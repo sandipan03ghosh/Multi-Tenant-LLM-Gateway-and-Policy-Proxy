@@ -1,0 +1,32 @@
+{
+  "name": "@llm-gateway/worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Background worker composition root — JobScheduler handlers for health polling, budget reconciliation, webhook/alert delivery, audit archival, batch queue draining.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "jest",
+    "dev": "cross-env METRICS_PORT=9101 tsx --env-file=../../.env src/index.ts"
+  },
+  "dependencies": {
+    "@llm-gateway/adapters-observability": "workspace:*",
+    "@llm-gateway/adapters-postgres": "workspace:*",
+    "@llm-gateway/adapters-provider-gemini": "workspace:*",
+    "@llm-gateway/adapters-provider-groq": "workspace:*",
+    "@llm-gateway/adapters-redis": "workspace:*",
+    "@llm-gateway/adapters-security": "workspace:*",
+    "@llm-gateway/application": "workspace:*",
+    "@llm-gateway/domain": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "cross-env": "^10.1.0",
+    "tsx": "^4.23.11",
+    "typescript": "^5.9.3"
+  }
+}

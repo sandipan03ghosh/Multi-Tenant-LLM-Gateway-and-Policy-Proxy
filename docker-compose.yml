@@ -1,0 +1,177 @@
+# Local development environment.
+#
+# Core data-plane services (postgres, redis) are always on. Observability services are gated
+# behind the "observability" Compose profile:
+#
+#   docker compose up                          # postgres + redis only
+#   docker compose --profile observability up   # + otel-collector, prometheus, alertmanager, grafana
+
+name: llm-gateway
+
+services:
+  postgres:
+    image: postgres:18.6
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-gateway}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-gateway}
+      POSTGRES_DB: ${POSTGRES_DB:-llm_gateway}
+    ports:
+      - "5432:5432"
+    volumes:
+      # postgres:18+ expects a single mount at /var/lib/postgresql (not the pre-18 .../data subpath).
+      - postgres_data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-gateway} -d ${POSTGRES_DB:-llm_gateway}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:8.10.1
+    restart: unless-stopped
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+      - ./docker/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.153.0
+    restart: unless-stopped
+    profiles: ["observability"]
+    command: ["--config=/etc/otel-collector-config.yaml"]
+    volumes:
+      - ./docker/otel-collector/otel-collector-config.yaml:/etc/otel-collector-config.yaml:ro
+    ports:
+      - "4317:4317" # OTLP gRPC
+      - "4318:4318" # OTLP HTTP
+      - "8889:8889" # Prometheus exporter (scraped by prometheus below)
+
+  prometheus:
+    image: prom/prometheus:v3.13.3
+    restart: unless-stopped
+    profiles: ["observability"]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+    volumes:
+      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./docker/prometheus/alert-rules.yml:/etc/prometheus/alert-rules.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "9090:9090"
+    depends_on:
+      - otel-collector
+      - alertmanager
+
+  alertmanager:
+    image: prom/alertmanager:v0.34.0
+    restart: unless-stopped
+    profiles: ["observability"]
+    command:
+      - "--config.file=/etc/alertmanager/alertmanager.yml"
+    volumes:
+      - ./docker/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+    secrets:
+      - alertmanager_webhook_url
+    ports:
+      - "9093:9093"
+
+  grafana:
+    image: grafana/grafana:13.1.5
+    restart: unless-stopped
+    profiles: ["observability"]
+    environment:
+      # No fallback default — a weak default password defeats the point.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?GRAFANA_ADMIN_PASSWORD must be set in .env}
+    volumes:
+      - ./docker/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./docker/grafana/dashboards:/etc/grafana/dashboards:ro
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+
+  api:
+    build:
+      context: .
+      dockerfile: packages/api/Dockerfile
+      args:
+        # Passed through if the shell/CI exports it; defaults to "unknown" otherwise.
+        GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-unknown}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # In-network service names, overriding host-side .env values; everything else comes from env_file.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-gateway}:${POSTGRES_PASSWORD:-gateway}@postgres:5432/${POSTGRES_DB:-llm_gateway}
+      REDIS_URL: redis://redis:6379
+    ports:
+      - "3000:3000"
+      # No 9100 (METRICS_PORT) — it stays reachable only inside the compose network for Prometheus.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build:
+      context: .
+      dockerfile: packages/worker/Dockerfile
+      args:
+        GIT_COMMIT_SHA: ${GIT_COMMIT_SHA:-unknown}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Same in-network override as api; the worker's env.ts reads no JWT_*/API_PORT.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-gateway}:${POSTGRES_PASSWORD:-gateway}@postgres:5432/${POSTGRES_DB:-llm_gateway}
+      REDIS_URL: redis://redis:6379
+    # No ports: the worker serves no HTTP API, and METRICS_PORT stays unpublished.
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      # A process-is-up check against /health, not /ready — a transient Postgres/Redis blip
+      # shouldn't be reported as "unhealthy" and restarted mid-outage.
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:9100/health').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
+  prometheus_data:
+  grafana_data:
+
+secrets:
+  # Sourced from the host/.env variable at `docker compose up` time, so the webhook URL isn't
+  # baked into the checked-in alertmanager.yml. If unset, Alertmanager fails to deliver and logs it.
+  alertmanager_webhook_url:
+    environment: "ALERTMANAGER_WEBHOOK_URL"

@@ -1,0 +1,33 @@
+# Prometheus alerting rules for local development — the metric-threshold alerts path.
+
+groups:
+  - name: gateway-slo
+    rules:
+      - alert: GatewayHighLatency
+        expr: histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket[5m])) by (le)) > 2
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Gateway p99 latency above 2s"
+          description: "p99 request latency has exceeded the 2s SLO threshold for 5 minutes."
+
+      - alert: GatewayElevatedErrorRate
+        expr: |
+          sum(rate(http_requests_total{status=~"5.."}[5m]))
+          / sum(rate(http_requests_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Gateway error rate above 5%"
+          description: "More than 5% of requests have returned a 5xx status for 5 minutes."
+
+      - alert: GatewaySustainedRateLimitRejections
+        expr: rate(rate_limit_rejections_total[5m]) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Sustained rate-limit rejections"
+          description: "Gateway-wide rate-limit rejections have averaged more than 1/s for 10 minutes — check for a misconfigured client or an undersized limit."

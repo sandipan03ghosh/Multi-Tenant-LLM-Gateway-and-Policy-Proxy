@@ -1,0 +1,20 @@
+{
+  "name": "@llm-gateway/sdk-node",
+  "version": "0.1.0",
+  "private": true,
+  "description": "TypeScript SDK — thin typed HTTP client over the Gateway's Public and Admin APIs. Ships with zero runtime dependencies; all request/response types in src/ are hand-authored, not generated. generate:types is a standalone, optional drift-check against openapi/openapi.json — its output is not imported by src/ or included in the build (see that script's target directory).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "jest",
+    "generate:types": "openapi-typescript ../../openapi/openapi.json -o openapi-drift-check/openapi-types.ts"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "openapi-typescript": "^7.9.1"
+  }
+}

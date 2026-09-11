@@ -1,0 +1,23 @@
+{
+  "name": "@llm-gateway/adapters-security",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Security primitive adapters: JWT signing/verification (jose) and API key hashing (argon2id).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@llm-gateway/domain": "workspace:*",
+    "argon2": "^0.45.1",
+    "jose": "^6.2.8"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3"
+  }
+}

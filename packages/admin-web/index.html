@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!--
+      Defense-in-depth against XSS, on top of sessionStorage's own exposure (never solved by a
+      CSP — see credentialStorage.ts): script-src 'self' blocks any injected/inline/third-party
+      script from running at all; object-src/base-uri/frame-ancestors 'none' close the classic
+      plugin-injection, <base>-tag-hijack, and clickjacking-via-framing vectors. connect-src is
+      intentionally left unrestricted (omitted -> defaults to allowing any origin): the Admin
+      API's base URL is entered by the operator at runtime (that's the whole point of Step I's
+      CORS work), so it can't be pinned into a build-time allowlist here. No 'unsafe-inline'
+      anywhere -- every screen in this app styles via styles.css classes, never inline style
+      objects, specifically so this policy doesn't need to loosen style-src either.
+
+      This is NOT a complete XSS guarantee: a same-origin script this app legitimately loads
+      (i.e. this app's own bundled code, or a future compromised dependency) can still read
+      sessionStorage — a CSP restricts where executable script can come FROM, it can't distinguish
+      "this app's own code doing something it shouldn't" from "this app's own code doing its job".
+      What it substantially reduces is an attacker's ability to get *foreign* script to execute in
+      this page at all (injected via unescaped rendering, a compromised third-party script tag,
+      etc.) in the first place — see App.tsx/screens/* for the React-only-rendering rule that
+      closes the other half of that gap (data always flows through JSX text interpolation, never
+      dangerouslySetInnerHTML or direct DOM writes).
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self';"
+    />
+    <title>LLM Gateway — Admin</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

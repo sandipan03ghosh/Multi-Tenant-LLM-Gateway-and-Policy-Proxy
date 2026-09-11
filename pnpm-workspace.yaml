@@ -1,0 +1,15 @@
+packages:
+  - "packages/*"
+
+overrides:
+  glob: ^13.0.0
+  deepmerge-ts: ^8.0.2
+  # --- Security advisories (transitive deps; see `pnpm audit`) ---
+  # mysql2 is only pulled in by the prisma CLI's MySQL support — unused here (Postgres via
+  # @prisma/adapter-pg) — but bump it to clear GHSA-3f6p-5ww8-9rcr / GHSA-rgwj-5xj2-c3m3.
+  mysql2: ^3.24.4
+  # qs via express 5 — GHSA-x5fp-wj9c-mxmx / GHSA-4mjr-xmp4-gh2g
+  qs: ^6.16.0
+  # js-yaml — GHSA-2883-xcg3-v3hh, patched separately per major line
+  js-yaml@3: ^3.15.2
+  js-yaml@4: ^4.3.2

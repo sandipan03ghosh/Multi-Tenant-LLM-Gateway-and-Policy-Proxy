@@ -1,0 +1,21 @@
+{
+  "name": "@llm-gateway/application",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Use-case orchestration (routing, enrichment, scheduling, budget, cost). Depends only on domain ports, plus adapters-observability for cross-cutting tracing/logging (see .dependency-cruiser.cjs).",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "jest"
+  },
+  "dependencies": {
+    "@llm-gateway/adapters-observability": "workspace:*",
+    "@llm-gateway/domain": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  }
+}
